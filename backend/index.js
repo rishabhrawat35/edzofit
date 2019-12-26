@@ -6,7 +6,7 @@ const graphqlHTTP = require('express-graphql')
 const keys = require('./config/keys.js')
 const mongoose = require('mongoose')
 
-const GQlSchema = require('./graphql/schema')
+const GQlSchema = require('./graphql/index')
 // const graphQlResolvers = require('./graphql/resolvers/index')
 const isAuth = require('./middleware/is-auth')
 

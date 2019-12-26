@@ -7,7 +7,7 @@ const Gym = require('../schema/models/Gym')
 
 const Plan = require('../schema/models/Plan')
 const Attendance = require('../schema/models/Attendance')
-const Trainer = require('../schema/models/Tariner')
+const Trainer = require('../schema/models/Trainer')
 const GymOwner = require('../schema/models/GymOwner')
 const Admin = require('../schema/models/Admin')
 const Invoice = require('../schema/models/Invoice')
@@ -182,7 +182,10 @@ const GymOwnerType = new GraphQLObjectType({
         email: {type: GraphQLNonNull(GraphQLString)},
         password: {type: GraphQLString},
         gym: {
-            type: GraphQLNonNull(GymType)
+            type: GymType,
+            resolve(parent, args) {
+                return Gym.findOne({owner: parent.id})
+            }
         },
         address: {type: GraphQLNonNull(GraphQLString)},
         city: {type: GraphQLNonNull(GraphQLString)},
@@ -227,7 +230,7 @@ const PlanType = new GraphQLObjectType({
             }
         },
         dateStarted: {type: GraphQLNonNull(GraphQLString)},
-        dateEnding: {type: GraphQLNonNull(GraphQLString)},
+        dateCreated: {type: GraphQLNonNull(GraphQLString)},
         status: {type: GraphQLNonNull(GraphQLString)}
     })
 })
@@ -278,9 +281,9 @@ const RequestType = new GraphQLObjectType({
         description: {type: GraphQLNonNull(GraphQLString)},
         reply: {type: GraphQLString},
         dateCreated: {type: GraphQLNonNull(GraphQLString)},
+        responseAt: {type: GraphQLNonNull(GraphQLString)},
         status: {type: GraphQLNonNull(GraphQLString)},
         validated: {type: GraphQLNonNull(GraphQLBoolean)},
-        rejected: {type: GraphQLNonNull(GraphQLBoolean)},
         isOpen: {type: GraphQLNonNull(GraphQLBoolean)}
     })
 })
@@ -314,7 +317,12 @@ const NoticeType = new GraphQLObjectType({
     name: 'Notice',
     fields: () => ({
         id: {type: GraphQLNonNull(GraphQLID)},
-        gym: {type: GraphQLNonNull(GymType)},
+        gym: {
+            type: GraphQLNonNull(GymType),
+            resolve(parent, args) {
+                return Gym.findOne({notices: {$in: parent.id}})
+            }
+        },
         name: {type: GraphQLNonNull(GraphQLString)},
         description: {type: GraphQLNonNull(GraphQLString)},
         dateCreated: {type: GraphQLNonNull(GraphQLString)},
@@ -364,7 +372,7 @@ const InvoiceType = new GraphQLObjectType({
         plan: {
             type: GraphQLNonNull(PlanType),
             resolve(parent, args) {
-                return Plan.findById(parent.id)
+                return Plan.findById(parent.plan)
             }
         },
         amount: {type: GraphQLNonNull(GraphQLInt)},
@@ -412,7 +420,7 @@ const RootQuery = new GraphQLObjectType({
     name: 'RootQuery',
     fields: {
         loginUser: {
-            type: GraphQLNonNull(AuthData),
+            type: GraphQLNonNull(AuthDataType),
             args: {
                 method: {type: GraphQLNonNull(GraphQLString)},
                 password: {type: GraphQLNonNull(GraphQLString)}
@@ -431,7 +439,7 @@ const RootQuery = new GraphQLObjectType({
                     }
                     const isEqual = await bcrypt.compare(args.password, user.password)
                     if(!isEqual) throw new Error('Invalid Password')
-                    const token = jwt.sign({userId: user.id}, 'ninenine', {
+                    const token = jwt.sign({userId: user.id, userType: 'User'}, 'ninenine', {
                         expiresIn: '8760h'
                     })
                     return { userId: user.id, token: token, userType: 'User', tokenExpiration: 8760 }
@@ -443,7 +451,7 @@ const RootQuery = new GraphQLObjectType({
             }
         },
         loginGymOwner: {
-            type: GraphQLNonNull(AuthData),
+            type: GraphQLNonNull(AuthDataType),
             args: {
                 method: {type: GraphQLNonNull(GraphQLString)},
                 password: {type: GraphQLNonNull(GraphQLString)}
@@ -457,11 +465,11 @@ const RootQuery = new GraphQLObjectType({
                         ]
                     })
                     if(!gymOwner) {
-                        throw new Error('User does not exist')
+                        throw new Error('GymOwner does not exist')
                     }
                     const isEqual = await bcrypt.compare(args.password, gymOwner.password)
                     if(!isEqual) throw new Error('Invalid Password')
-                    const token = jwt.sign({userId: gymOwner.id}, 'ninenine', {
+                    const token = jwt.sign({userId: gymOwner.id, userType: 'GymOwner'}, 'ninenine', {
                         expiresIn: '8760h'
                     })
                     return { userId: gymOwner.id, token: token, userType: 'GymOwner', tokenExpiration: 8760 }
@@ -473,7 +481,7 @@ const RootQuery = new GraphQLObjectType({
             }
         },
         loginAdmin: {
-            type: GraphQLNonNull(AuthData),
+            type: GraphQLNonNull(AuthDataType),
             args: {
                 method: {type: GraphQLNonNull(GraphQLString)},
                 password: {type: GraphQLNonNull(GraphQLString)}
@@ -491,7 +499,7 @@ const RootQuery = new GraphQLObjectType({
                     }
                     const isEqual = await bcrypt.compare(args.password, admin.password)
                     if(!isEqual) throw new Error('Invalid Password')
-                    const token = jwt.sign({userId: admin.id}, 'ninenine', {
+                    const token = jwt.sign({userId: admin.id, userType: 'Admin'}, 'ninenine', {
                         expiresIn: '8760h'
                     })
                     return { userId: admin.id, token: token, userType: 'Admin', tokenExpiration: 8760 }
@@ -506,9 +514,7 @@ const RootQuery = new GraphQLObjectType({
             type: GraphQLNonNull(UserType),
             async resolve(parent, args, req) {
                 try {
-                    if(!req.userId) {
-                        throw new Error('Unauthenticated!')
-                    }
+                    if(!req.userId) throw new Error('Unauthenticated!')
                     return await User.findById(req.userId)
                 }
                 catch (err) {
@@ -524,9 +530,7 @@ const RootQuery = new GraphQLObjectType({
             },
             async resolve(parent, args, req) {
                 try {
-                    if(!req.userId) {
-                        throw new Error('Unauthenticated!')
-                    }
+                    if(!req.userId) throw new Error('Unauthenticated!')
                     return await User.findById(args.userId)
                 }
                 catch (err) {
@@ -537,9 +541,9 @@ const RootQuery = new GraphQLObjectType({
         },
         getAllUsers: {
             type: GraphQLList(UserType),
-            resolve(parent, args, req) {
+            async resolve(parent, args, req) {
                 try {
-                    if(!req.userId && req.userType == 'Admin') throw new Error('Unauthenticated or Unauthorized!')
+                    if(!req.userType || req.userType != 'Admin') throw new Error('Unauthenticated or Unauthorized!')
                     return await User.find()
                 }
                 catch (err) {
@@ -548,8 +552,131 @@ const RootQuery = new GraphQLObjectType({
                 }
             }
         },
+        getGymOfUser: {
+            type: GraphQLNonNull(GymType),
+            async resolve(parent, args) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated')
+                    return Gym.findOne({users: {$in: parent.id}})
+                }
+                catch (err) {
+                    console.log('Error getting the User\'s Gym', err)
+                    return err
+                }
+            }
+        },
+        getUserRequests: {
+            type: GraphQLList(RequestType),
+            async resolve(parent, args) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated')
+                    return Request.find({user: req.userId})
+                }
+                catch (err) {
+                    console.log('Error getting the User\'s Requests: ', err)
+                    return err
+                }
+            }
+        },
+        getGymRequests: {
+            type: GraphQLList(RequestType),
+            async resolve(parent, args) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated')
+                    return Request.find({gym: req.userId})
+                }
+                catch (err) {
+                    console.log('Error getting the Gym\'s Requests: ', err)
+                    return err
+                }
+            }
+        },
+        getRequestById: {
+            type: GraphQLNonNull(RequestType),
+            args: {
+                requestId: {type: GraphQLNonNull(GraphQLString)}
+            },
+            async resolve(parent, args) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated')
+                    return Request.findById(requestId)
+                }
+                catch (err) {
+                    console.log('Error getting the request: ', err)
+                    return err
+                }
+            }
+        },
+        getUserFeedbacks: {
+            type: GraphQLList(RequestType),
+            async resolve(parent, args) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated')
+                    return Feedback.find({user: req.userId})
+                }
+                catch (err) {
+                    console.log('Error getting the User\'s Feedbacks: ', err)
+                    return err
+                }
+            }
+        },
+        getGymFeedbacks: {
+            type: GraphQLList(RequestType),
+            async resolve(parent, args) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated')
+                    return Feedback.find({gym: req.userId})
+                }
+                catch (err) {
+                    console.log('Error getting the Gym\'s Feedbacks: ', err)
+                    return err
+                }
+            }
+        },
+        getFeedbackById: {
+            type: GraphQLNonNull(RequestType),
+            args: {
+                feedbackId: {type: GraphQLNonNull(GraphQLString)}
+            },
+            async resolve(parent, args) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated')
+                    return Feedback.findById(feedbackId)
+                }
+                catch (err) {
+                    console.log('Error getting the feedback: ', err)
+                    return err
+                }
+            }
+        },
+        getGymOfOwner: {
+            type: GraphQLNonNull(GymType),
+            async resolve(parent, args) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated')
+                    return Gym.findOne({owner: parent.id})
+                }
+                catch (err) {
+                    console.log('Error getting the owner\'s Gym', err)
+                    return err
+                }
+            }
+        },
+        getGymOwner: {
+            type: GraphQLNonNull(GymType),
+            async resolve(parent, args) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated')
+                    return GymOwner.findById(req.userId)
+                }
+                catch (err) {
+                    console.log('Error getting the GymOwner', err)
+                    return err
+                }
+            }
+        },
         getGymUsersByGymId: {
-            type: GraphQLNonNull(UserType),
+            type: GraphQLList(UserType),
             args: {
                 gymId: {type: GraphQLNonNull(GraphQLString)}
             },
@@ -568,9 +695,9 @@ const RootQuery = new GraphQLObjectType({
         },
         getAllGyms: {
             type: GraphQLList(UserType),
-            resolve(parent, args, req) {
+            async resolve(parent, args, req) {
                 try {
-                    if(!req.userId && req.userType == 'Admin') throw new Error('Unauthenticated or Unauthorized!')
+                    if(!req.userId || req.userType != 'Admin') throw new Error('Unauthenticated or Unauthorized!')
                     return await Gym.find()
                 }
                 catch (err) {
@@ -580,10 +707,10 @@ const RootQuery = new GraphQLObjectType({
             }
         },
         getAllGymsOwners: {
-            type: GraphQLList(UserType),
-            resolve(parent, args, req) {
+            type: GraphQLList(GymOwnerType),
+            async resolve(parent, args, req) {
                 try {
-                    if(!req.userId && req.userType == 'Admin') throw new Error('Unauthenticated or Unauthorized!')
+                    if(!req.userId || req.userType != 'Admin') throw new Error('Unauthenticated or Unauthorized!')
                     return await Gym.find()
                 }
                 catch (err) {
@@ -592,47 +719,205 @@ const RootQuery = new GraphQLObjectType({
                 }
             }
         },
+        getPlanById: {
+            type: GraphQLNonNull(PlanType),
+            args: {
+                planId: {type: GraphQLNonNull(GraphQLString)}
+            },
+            async resolve(parent, args, req) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    return await Plan.find({gym: args.gymId})
+                }
+                catch (err) {
+                    console.log('Error getting All Gym Plans: ', err)
+                    return err
+                }
+            }
+        },
+        getGymPlansByGymId: {
+            type: GraphQLList(PlanType),
+            args: {
+                gymId: {type: GraphQLNonNull(GraphQLString)}
+            },
+            async resolve(parent, args, req) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    return await Plan.find({gym: args.gymId})
+                }
+                catch (err) {
+                    console.log('Error getting All Gym Plans: ', err)
+                    return err
+                }
+            }
+        },
+        getAllPlans: {
+            type: GraphQLList(PlanType),
+            async resolve(parent, args, req) {
+                try {
+                    if(!req.userId || req.userType != 'Admin') throw new Error('Unauthenticated or Unauthorized!')
+                    return await Plan.find()
+                }
+                catch (err) {
+                    console.log('Error getting all plans: ', err)
+                    return err
+                }
+            }
+        },
+        getUserInvoices: {
+            type: GraphQLList(InvoiceType),
+            async resolve(parent, args) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated')
+                    return await Invoice.find({user: req.userId})
+                }
+                catch (err) {
+                    console.log('Error getting user invoices: ', err)
+                    return err
+                }
+            }
+        },
+        getGymInvoices: {
+            type: GraphQLList(InvoiceType),
+            async resolve(parent, args) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    return await Invoice.find({gym: req.userId})
+                }
+                catch (err) {
+                    console.log('Error getting gym invoices: ', err)
+                    return err
+                }
+            }
+        },
+        getAllInvoices: {
+            type: GraphQLList(InvoiceType),
+            async resolve(parent, args) {
+                try {
+                    if(!req.userId || req.userType != 'Admin') throw new Error('Unauthenticated & Unauthorized!')
+                    return await Invoice.find()
+                }
+                catch (err) {
+                    console.log('Error getting all invoices: ', err)
+                    return err
+                }
+            }
+        },
+        getUserAttendance: {
+            type: GraphQLList(AttendanceType),
+            async resolve(parent, args) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    return await Attendance.find({user: req.userId})
+                }
+                catch (err) {
+                    console.log('Error getting user attendance: ', err)
+                    return err
+                }
+            }
+        },
+        getGymAttendance: {
+            type: GraphQLList(AttendanceType),
+            async resolve(parent, args) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    return await Attendance.find({gym: req.userId})
+                }
+                catch (err) {
+                    console.log('Error getting gym attendance: ', err)
+                    return err
+                }
+            }
+        },
+        getAllAttendance: {
+            type: GraphQLList(AttendanceType),
+            async resolve(parent, args) {
+                try {
+                    if(!req.userId || req.userType != 'Admin') throw new Error('Unauthenticated & Unauthorized!')
+                    return await Attendance.find()
+                }
+                catch (err) {
+                    console.log('Error getting all attendance: ', err)
+                    return err
+                }
+            }
+        },
+        getGymNotices: {
+            type: GraphQLList(NoticeType),
+            async resolve(parent, args) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    return await Notice.find({gym: req.userId})
+                }
+                catch (err) {
+                    console.log('Error getting gym notices: ', err)
+                    return err
+                }
+            }
+        },
+        getAllNotices: {
+            type: GraphQLList(NoticeType),
+            async resolve(parent, args) {
+                try {
+                    if(!req.userId || req.userType != 'Admin') throw new Error('Unauthenticated & Unauthorized!')
+                    return await Notices.find()
+                }
+                catch (err) {
+                    console.log('Error getting all notices: ', err)
+                    return err
+                }
+            }
+        },
+        getGymNotifications: {
+            type: GraphQLList(NotificationType),
+            async resolve(parent, args) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    return await Notifications.find({gym: req.userId})
+                }
+                catch (err) {
+                    console.log('Error getting gym notifications: ', err)
+                    return err
+                }
+            }
+        },
+        getTrainersByGymId: {
+            type: GraphQLList(TrainerType),
+            args: {
+                gymId: {type: GraphQLNonNull(GraphQLString)}
+            },
+            async resolve(parent, args) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    return await Trainer.find({gym: args.gymId})
+                }
+                catch (err) {
+                    console.log('Error getting gym trainers: ', err)
+                    return err
+                }
+            }
+        },
+        getAllTrainers: {
+            type: GraphQLList(TrainerType),
+            async resolve(parent, args) {
+                try {
+                    if(!req.userId || req.userType != 'Admin') throw new Error('Unauthenticated & Unauthorized!')
+                    return await Trainer.find()
+                }
+                catch (err) {
+                    console.log('Error getting all trainers: ', err)
+                    return err
+                }
+            }
+        }
     }
 })
 
 const RootMutation = new GraphQLObjectType({
     name: 'RootMutation',
     fields: {
-        createGym: {
-            type: AuthDataType,
-            args: {
-                name: {type: GraphQLNonNull(GraphQLString)},
-                email: {type: GraphQLNonNull(GraphQLString)},
-                password: {type: GraphQLNonNull(GraphQLString)},
-                age: {type: GraphQLNonNull(GraphQLInt)},
-                phoneNumber: {type: GraphQLNonNull(GraphQLString)}
-            },
-            async resolve(parent, args) {
-                const teacher = await Teacher.findOne({ email: args.email })
-                if(teacher) {
-                    throw new Error('User exists already')
-                }
-                const hashedPassword = await bcrypt.hash(args.password, 12)
-                const newTeacher = new Teacher({
-                    name: args.name,
-                    email: args.email,
-                    password: hashedPassword,
-                    age: args.age,
-                    phoneNumber: args.phoneNumber,
-                    isAvailable: false,
-                    isOnline: true,
-                    dateJoined: new Date().toDateString(),
-                    dateLastLogin: new Date().toDateString()
-                })
-                const savedTeacher = await newTeacher.save()
-                const token = jwt.sign({userId: savedTeacher.id}, 'ninenine', {
-                    expiresIn: '8760h'
-                })
-                return { userId: savedTeacher.id, token: token, typeUser: 'Teacher', tokenExpiration: 8760 }
-            }
-        },
         createUser: {
-            type: AuthDataType,
+            type: GraphQLNonNull(AuthDataType),
             args: {
                 firstName: {type: GraphQLNonNull(GraphQLString)},
                 lastName: {type: GraphQLNonNull(GraphQLString)},
@@ -663,7 +948,7 @@ const RootMutation = new GraphQLObjectType({
                         else throw new Error('Email in use already')
                     }
                     const hashedPassword = await bcrypt.hash(args.password, 12)
-                    const picture = args.displayPicture ? args.displayPicture : await [[[API]]]
+                    const picture = args.displayPicture ? args.displayPicture : await (Math.random() * 8) + ''
                     // console.log(hashedPassword)
                     var newUser = new User({
                         firstName: args.firstName,
@@ -678,135 +963,758 @@ const RootMutation = new GraphQLObjectType({
                         weight: args.weight ? args.weight : null,
                         displayPicture: picture,
                         phoneNumber: args.phoneNumber,
+                        registerationFee: 0,
                         dateCreated: new Date().toDateString(),
-                        dateLastLogin: new Date().toDateString()
+                        dateLastLogin: new Date().toDateString(),
+                        status: 'Active'
                     })
-                    newSubscription.save()
-                    const token = jwt.sign({userId: newUser.id}, 'ninenine', {
+                    const savedUser = await newUser.save()
+                    const token = jwt.sign({userId: savedUser.id, userType: 'User'}, 'ninenine', {
                         expiresIn: '8760h'
                     })
-                    return { userId: newUser.id, token: token, userType: 'User', tokenExpiration: 8760 }
+                    return { userId: savedUser.id, token: token, userType: 'User', tokenExpiration: 8760 }
                 }
                 catch (err) {
                     return err
                 }
             }
         },
-        loginStudent: {
-            type: AuthDataType,
+        createGymOwner: {
+            type: GraphQLNonNull(AuthDataType),
             args: {
-                method: {type: GraphQLNonNull(GraphQLString)},
-                password: {type: GraphQLNonNull(GraphQLString)}
+                name: {type: GraphQLNonNull(GraphQLString)},
+                email: {type: GraphQLNonNull(GraphQLString)},
+                password: {type: GraphQLNonNull(GraphQLString)},
+                address: {type: GraphQLNonNull(GraphQLString)},
+                city: {type: GraphQLNonNull(GraphQLString)},
+                phoneNumber: {type: GraphQLNonNull(GraphQLString)}
             },
-            async resolve(parent , args) {
-                try {
-                    const student = await Student.findOne({ email: args.method })
-                    if(!student) {
-                        console.log('User does not Exist')
-                        throw new Error('User does not exist')
-                    }
-                    const isEqual = await bcrypt.compare(args.password, student.password)
-                    if(!isEqual) throw new Error('Invalid Password')
-                    const token = jwt.sign({userId: student.id}, 'ninenine', {
-                        expiresIn: '8760h'
-                    })
-                    return { userId: student.id, token: token, typeUser: 'Student', tokenExpiration: 8760 }
+            async resolve(parent, args) {
+                const gymOwner = await GymOwner.findOne({
+                    $or: [
+                        {email: args.email},
+                        {phoneNumber: args.phoneNumber}
+                    ]
+                })
+                if(gymOwner) {
+                    if(user.phoneNumber == args.phoneNumber) throw new Error('Phone Number in use already')
+                    else throw new Error('Email in use already')
                 }
-                catch (err) {
-                    return err
-                }
+                const hashedPassword = await bcrypt.hash(args.password, 12)
+                const newGymOwner = new GymOwner({
+                    name: args.name,
+                    email: args.email,
+                    password: hashedPassword,
+                    address: args.address,
+                    city: args.city,
+                    phoneNumber: args.phoneNumber,
+                    dateCreated: new Date().toDateString(),
+                    dateLastLogin: new Date().toDateString(),
+                    status: 'No Gym'
+                })
+                const savedGymOwner = await newGymOwner.save()
+                const token = jwt.sign({userId: savedGymOwner.id, userType: 'GymOwner'}, 'ninenine', {
+                    expiresIn: '8760h'
+                })
+                return { userId: savedGymOwner.id, token: token, user: 'GymOwner', tokenExpiration: 8760 }
             }
         },
-        loginTeacher: {
-            type: AuthDataType,
+        createAdmin: {
+            type: GraphQLNonNull(AuthDataType),
             args: {
-                method: {type: GraphQLNonNull(GraphQLString)},
-                password: {type: GraphQLNonNull(GraphQLString)}
+                name: {type: GraphQLNonNull(GraphQLString)},
+                password: {type: GraphQLNonNull(GraphQLString)},
+                email: {type: GraphQLNonNull(GraphQLString)},
+                phoneNumber: {type: GraphQLNonNull(GraphQLString)}
             },
             async resolve(parent, args) {
                 try {
-                    const teacher = await Teacher.findOne({ email: args.method })
-                    if(!teacher) {
-                        console.log('User does not Exist')
-                        throw new Error('User does not exist')
+                    const admin = await Admin.findOne({ 
+                        $or: [
+                            { email: args.email },
+                            { phoneNumber: args.phoneNumber }
+                        ]
+                    })
+                    if(admin) {
+                        if(admin.phoneNumber == args.phoneNumber) throw new Error('Phone Number in use already')
+                        else throw new Error('Email in use already')
                     }
-                    const isEqual = await bcrypt.compare(args.password, teacher.password)
-                    if(!isEqual) throw new Error('Invalid Password')
-                    const token = jwt.sign({userId: teacher.id}, 'ninenine', {
+                    const hashedPassword = await bcrypt.hash(args.password, 12)
+                    // console.log(hashedPassword)
+                    var newUser = new User({
+                        name: args.name,
+                        email: args.email,
+                        password: hashedPassword,
+                        phoneNumber: args.phoneNumber,
+                        dateCreated: new Date().toDateString(),
+                        dateLastLogin: new Date().toDateString(),
+                        status: 'Active'
+                    })
+                    const savedAdmin = await newAdmin.save()
+                    const token = jwt.sign({userId: savedAdmin.id, userType: 'Admin'}, 'ninenine', {
                         expiresIn: '8760h'
                     })
-                    return { userId: teacher.id, token: token, typeUser: 'Teacher', tokenExpiration: 8760 }
+                    return { userId: savedAdmin.id, token: token, userType: 'Admin', tokenExpiration: 8760 }
                 }
                 catch (err) {
                     return err
                 }
             }
         },
-        updateStudent: {
-            // Abstracted v<0.5
-            type: StudentType,
+        createGym: {
+            type: GraphQLNonNull(GymType),
             args: {
-                studentId: {type: GraphQLString},
-                name: {type: GraphQLString},
-                email: {type: GraphQLString},
-                password: {type: GraphQLString},
-                address: {type: GraphQLString},
-                phoneNumber: {type: GraphQLString}
+                name: {type: GraphQLNonNull(GraphQLString)},
+                address: {type: GraphQLNonNull(GraphQLString)},
+                city: {type: GraphQLNonNull(GraphQLInt)},
+                state: {type: GraphQLNonNull(GraphQLInt)},
+                country: {type: GraphQLNonNull(GraphQLInt)},
+                email: {type: GraphQLNonNull(GraphQLString)},
+                phoneNumber: {type: GraphQLNonNull(GraphQLString)},
+                GSTNumber: {type: GraphQLNonNull(GraphQLString)}
             },
             async resolve(parent, args) {
                 try {
-                    if(!req.userId) {
-                        throw new Error('Unauthenticated')
-                    }
-                    if(!args.studentId) {
-                        args.studentId = req.userId
-                    }
-                    const oldStudentInfo = await Student.findById(args.studentId)
-                    var updatedStudent
-                    if(!(oldStudentInfo.name == args.name)) {
-                        updatedStudent = 
-                    }
-                    else if(!(oldStudentInfo.email == args.email)) {
-                        
-                    }
-                    else if(!(oldStudentInfo.password == args.password)) {
-                        
-                    }
-                    else if(!(oldStudentInfo.phoneNumber == args.phoneNumber)) {
-                        
-                    }
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    if(req.userType != 'GymOwner') throw new Error('Unauthorized!')
+                    const secondGym = await Gym.findOne({owner: req.userId})
+                    if(secondGym) throw new Error('Already has one Gym')
+                    const gym = new Gym({
+                        name: args.name,
+                        address: args.address,
+                        city: args.city,
+                        state: args.state,
+                        country: args.country,
+                        owner: req.userId,
+                        email: args.email,
+                        phoneNumber: args.phoneNumber,
+                        GSTNumber: args.GSTNumber,
+                        dateCreated: new Date().toDateString(),
+                        dateLastLogin: new Date().toDateString(),
+                        status: 'Active'
+                    })
+                    return await gym.save()
                 }
-                catch (err) {
-                    console.log('Error Updating Student Details: ', err)
+                catch(err) {
+                    console.log('Error creating a new gym: ', err)
                     return err
                 }
             }
         },
-        updateTeacher: {
-            // Abstracted v<0.5
-            type: TeacherType,
+        addGymPicsAndServicesByGymId: {
+            type: GraphQLNonNull(GymType),
             args: {
-
-            }
-
-        },
-        endSession: {
-            type: DoubtSession,
-            args: {
-                doubtSessionId: {type: GraphQLNonNull(GraphQLString)}
+                gymId: {type: GraphQLNonNull(GraphQLString)},
+                pictures: {type: GraphQLList(GraphQLString)},
+                services: {type: GraphQLList(GraphQLString)}
             },
-            resolve(parent, args, req) {
+            async resolve (parent, args) {
                 try {
-
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    if(req.userType != 'GymOwner' || req.userType != 'Admin') throw new Error('Unauthorized!')
+                    const oldGym = await Gym.findById(args.gymId )
+                    return await Gym.findByIdAndUpdate(
+                        args.gymId, {
+                            pictures: args.pictures ? args.pictures : oldGym.pictures,
+                            services: args.services ? args.services : oldGym.services
+                        },
+                        {new: true}
+                    )
                 }
-                catch (err) {
-                    console.log('Error Ending the Session: ', err)
+                catch(err) {
+                    console.log('Error adding pictures and services to the Gym: ', err)
+                    return err
+                }
+                
+            }
+        },
+        joinGym: {
+            type: GraphQLNonNull(GymType),
+            args: {
+                gymId: {type: GraphQLNonNull(GraphQLString)}
+            },
+            async resolve(parent, args) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    if(req.userType != 'User') throw new Error('Unauthorized!')
+                    const secondGym = await Gym.findOne({users: {$in: req.userId}})
+                    if(secondGym) throw new Error('Already has one Gym')
+                    const gym = await Gym.findByIdAndUpdate(args.gymId, {$push: {users: req.userId}}, {new: true})
+                    await User.findByIdAndUpdate(req.userId, {gym: gym.id}, {new: true})
+                    return gym
+                }
+                catch(err) {
+                    console.log('Error joining the gym: ', err)
+                    return err
+                }
+            }
+        },
+        leaveGym: {
+            type: GraphQLNonNull(GraphQLString),
+            async resolve(parent, args) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    if(req.userType != 'User') throw new Error('Unauthorized!')
+                    // Get User Info
+                    const user = await User.findById(req.userId)
+                    if(!user.gym) throw new Error('User has no gym to delete')
+                    // Remove User from gym
+                    await Gym.findByIdAndUpdate(user.gym, {$pull: {users: req.userId}})
+                    // Remove User from plan
+                    if(user.plan) await Plan.findByIdAndUpdate(user.plan, {$pull: {users: req.userId}})
+                    // Remove User from trainer
+                    if(user.trainer) await Trainer.findByIdAndUpdate(user.gym, {$pull: {users: req.userId}})
+                    // Clear the User
+                    await User.findByIdAndUpdate(req.userId, {gym: null, plan: null, registerationFee: 0, planCycleStart: null, trainer: null})
+                    return 'Success'
+                }
+                catch(err) {
+                    console.log('Error leaving the gym: ', err)
+                    return err
+                }
+            }
+        },
+        deleteGymOfOwner: {
+            type: GraphQLNonNull(GraphQLString),
+            async resolve(parent, args) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    if(req.userType != 'GymOwner') throw new Error('Unauthorized!')
+                    const gym = await Gym.findOne({owner: req.userId})
+                    // Free the Users of the Gym
+                    gym.users.map(async user => {
+                        await User.findByIdAndUpdate(user, {gym: null, plan: null, registerationFee: 0, planCycleStart: null, trainer: null})
+                    })
+                    // Delete Trainers
+                    gym.trainers.map(async trainer => {
+                        await Trainer.findByIdAndDelete(trainer)
+                    })
+                    // Delete Plans
+                    gym.plans.map(async plan => {
+                        await Plan.findByIdAndDelete(plan)
+                    })
+                    // Free Owner
+                    await GymOwner.findByIdAndUpdate(req.userId, {gym: null})
+                    // Update GymStatus
+                    await Gym.findByIdAndUpdate(gym.id, {trainers: null, plans: null, users: null, status: 'ShutDown'})
+                    return 'Success'
+                }
+                catch(err) {
+                    console.log('Error deleting the gym: ', err)
+                    return err
+                }
+            }
+        },
+        deleteGym: {
+            type: GraphQLNonNull(GraphQLString),
+            args: {
+                gymId: {type: GraphQLNonNull(GraphQLString)}
+            },
+            async resolve(parent, args) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    if(req.userType != 'Admin') throw new Error('Unauthorized!')
+                    const gym = await Gym.findById(args.gymId)
+                    // Free the Users of the Gym
+                    gym.users.map(async user => {
+                        await User.findByIdAndUpdate(user, {gym: null, plan: null, registerationFee: 0, planCycleStart: null, trainer: null})
+                    })
+                    // Delete Trainers
+                    gym.trainers.map(async trainer => {
+                        await Trainer.findByIdAndDelete(trainer)
+                    })
+                    // Delete Plans
+                    gym.plans.map(async plan => {
+                        await Plan.findByIdAndDelete(plan)
+                    })
+                    // Free Owner
+                    await GymOwner.findByIdAndUpdate(gym.owner, {gym: null})
+                    // Update GymStatus
+                    await Gym.findByIdAndUpdate(gym.id, {trainers: null, plans: null, users: null, status: 'ShutDown'})
+                    return 'Success'
+                }
+                catch(err) {
+                    console.log('Error deleting the gym: ', err)
+                    return err
+                }
+            }
+        },
+        createPlan: {
+            type: GraphQLNonNull(PlanType),
+            args: {
+                name: {type: GraphQLNonNull(GraphQLString)},
+                dateStarted: {type: GraphQLNonNull(GraphQLString)},
+                description: {type: GraphQLNonNull(GraphQLString)},
+                amount: {type: GraphQLNonNull(GraphQLInt)}
+            },
+            async resolve (parent, args, req) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    if(req.userType != 'GymOwner') throw new Error('Unauthorized!')
+                    const gymOwner = await GymOwner.findById(req.userId)
+                    const plan = new Plan({
+                        name: args.name,
+                        gym: gymOwner.gym,
+                        description: args.desciption,
+                        amount: args.amount,
+                        dateStarted: args.dateStarted,
+                        dateCreated: new Date().toDateString(),
+                        status: 'Active'
+                    })
+                    return await plan.save()
+                }
+                catch(err) {
+                    console.log('Error generating a new plan: ', err)
+                    return err
+                }
+            }
+        },
+        joinPlan: {
+            type: GraphQLNonNull(PlanType),
+            args: {
+                planId: {type: GraphQLNonNull(GraphQLString)},
+            },
+            async resolve (parent, args, req) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    if(req.userType != 'User') throw new Error('Unauthorized!')
+                    await User.findOneAndUpdate(req.userId, {plan: planId})
+                    const plan = await Plan.findByIdAndUpdate(args.planId, {$push: {users: req.userId}}, {new: true})
+                    return plan
+                }
+                catch(err) {
+                    console.log('Error joining the plan: ', err)
+                    return err
+                }
+            }
+        },
+        leavePlan: {
+            type: GraphQLNonNull(GraphQLString),
+            args: {
+                planId: {type: GraphQLNonNull(GraphQLString)},
+            },
+            async resolve (parent, args, req) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    if(req.userType != 'User') throw new Error('Unauthorized!')
+                    await User.findOneAndUpdate(req.userId, {plan: null})
+                    await Plan.findByIdAndUpdate(args.planId, {$pull: {users: req.userId}}, {new: true})
+                    return 'Success!'
+                }
+                catch(err) {
+                    console.log('Error joining the plan: ', err)
+                    return err
+                }
+            }
+        },
+        deletePlan: {
+            type: GraphQLNonNull(GraphQLString),
+            args: {
+                planId: {type: GraphQLNonNull(GraphQLString)},
+            },
+            async resolve (parent, args, req) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    if(req.userType != 'GymOwner') throw new Error('Unauthorized!')
+                    await Plan.findByIdAndDelete(args.planId)
+                    return 'Success'
+                }
+                catch(err) {
+                    console.log('Error deleting the plan: ', err)
+                    return err
+                }
+            }
+        },
+        createTrainer: {
+            type: GraphQLNonNull(TrainerType),
+            args: {
+                name: {type: GraphQLNonNull(GraphQLString)},
+                description: {type: GraphQLNonNull(GraphQLString)}
+            },
+            async resolve (parent, args, req) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    if(req.userType != 'GymOwner') throw new Error('Unauthorized!')
+                    const gymOwner = await GymOwner.findById(req.userId)
+                    const trainer = new Trainer({
+                        name: args.name,
+                        gym: gymOwner.gym,
+                        description: args.desciption,
+                        dateCreated: new Date().toDateString(),
+                        status: 'Active'
+                    })
+                    return await trainer.save()
+                }
+                catch(err) {
+                    console.log('Error generating a new trainer: ', err)
+                    return err
+                }
+            }
+        },
+        joinTrainer:{
+            type: GraphQLNonNull(TrainerType),
+            args: {
+                trainerId: {type: GraphQLNonNull(GraphQLString)},
+            },
+            async resolve (parent, args, req) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    if(req.userType != 'User') throw new Error('Unauthorized!')
+                    await User.findOneAndUpdate(req.userId, {trainer: trainerId})
+                    const trainer = await Trainer.findByIdAndUpdate(args.trainerId, {$push: {users: req.userId}}, {new: true})
+                    return trainer
+                }
+                catch(err) {
+                    console.log('Error joining the trainer: ', err)
+                    return err
+                }
+            }
+        },
+        leaveTrainer: {
+            type: GraphQLNonNull(GraphQLString),
+            args: {
+                trainerId: {type: GraphQLNonNull(GraphQLString)},
+            },
+            async resolve (parent, args, req) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    if(req.userType != 'User') throw new Error('Unauthorized!')
+                    await User.findOneAndUpdate(req.userId, {trainer: null})
+                    await Trainer.findByIdAndUpdate(args.trainerId, {$pull: {users: req.userId}}, {new: true})
+                    return 'Success!'
+                }
+                catch(err) {
+                    console.log('Error leaning the trainer: ', err)
+                    return err
+                }
+            }
+        },
+        deleteTrainer: {
+            type: GraphQLNonNull(GraphQLString),
+            args: {
+                trainerId: {type: GraphQLNonNull(GraphQLString)},
+            },
+            async resolve (parent, args, req) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    if(req.userType != 'GymOwner') throw new Error('Unauthorized!')
+                    await Trainer.findByIdAndDelete(args.trainerId)
+                    return 'Success'
+                }
+                catch(err) {
+                    console.log('Error deleting the gym trainer: ', err)
+                    return err
+                }
+            }
+        },
+        makePayment: {
+            type: GraphQLNonNull(InvoiceType),
+            args: {
+                amount: {type: {GraphQLNonNull(GraphQLInt)}},
+                name: {type: {GraphQLNonNull(GraphQLString)}},
+                description: {type: {GraphQLNonNull(GraphQLString)}}
+            },
+            async resolve (parent, args, req) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    if(req.userType != 'User') throw new Error('Unauthorized!')
+                    const user = await User.findById(req.userId)
+                    const invoice = new Invoice({
+                        user: req.userId,
+                        gym: user.gym,
+                        plan: user.plan ? user.plan : null,
+                        name: args.name,
+                        desciption: args.desciption,
+                        amount: args.amount,
+                        dateCreated: new Date().toDateString(),
+                        status: 'Paid'
+                    })
+                    return await invoice.save()
+                }
+                catch(err) {
+                    console.log('Error making invoice: ', err)
+                    return err
+                }
+            }
+        },
+        markAttendance: {
+            type: GraphQLNonNull(AttendanceType),
+            async resolve(parent, args, req) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    if(req.userType != 'User') throw new Error('Unauthorized!')
+                    const user = await User.findById(req.userId)
+                    const attendance = new Attendance({
+                        user: req.userId,
+                        gym: user.gym,
+                        date: new Date().toDateString()
+                    })
+                    return await attendance.save()
+                }
+                catch(err) {
+                    console.log('Error marking attendance: ', err)
+                    return err
+                }
+            }
+        },
+        createRequest: {
+            type: GraphQLNonNull(RequestType),
+            args: {
+                name: {type: GraphQLNonNull(GraphQLString)},
+                description: {type: GraphQLNonNull(GraphQLString)}
+            },
+            async resolve (parent, args, req) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    if(req.userType != 'User') throw new Error('Unauthorized!')
+                    const user = await User.findById(req.userId)
+                    const request = new Request({
+                        args: req.userId,
+                        gym: user.gym,
+                        name: args.name,
+                        desciption: args.description,
+                        dateCreated: new Date().toDateString(),
+                        isOpen: true,
+                        status: 'Active'
+                    })
+                    return await request.save()
+                }
+                catch(err) {
+                    console.log('Error Creating a new feedback')
+                }
+            }
+        },
+        deleteRequest: {
+            type: GraphQLNonNull(GraphQLString),
+            args: {
+                requestId: {type: GraphQLNonNull(GraphQLString)},
+            },
+            async resolve (parent, args, req) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    if(req.userType != 'User') throw new Error('Unauthorized!')
+                    await Request.findByIdAndDelete(args.requestId)
+                    return 'Success'
+                }
+                catch(err) {
+                    console.log('Error deleting the user request: ', err)
+                    return err
+                }
+            }
+        },
+        replyRequest: {
+            type: GraphQLNonNull(RequestType),
+            args: {
+                reply: {type: GraphQLNonNull(GraphQLString)},
+                requestId: {type: GraphQLNonNull(GraphQLString)},
+                affirmation: {type: GraphQLNonNull(GraphQLBoolean)}
+            },
+            async resolve (parent, args, req) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    if(req.userType != 'GymOwner') throw new Error('Unauthorized!')
+                    const modifiedRequest = await Request.findByIdAndUpdate(
+                        args.requestId, {
+                            reply: args.reply, 
+                            isOpen: false, 
+                            validated: args.affirmation, 
+                            responseAt: new Date().toDateString(),
+                            status: 'Responded'
+                        }, {new: true}
+                    )
+                    return modifiedRequest
+                }
+                catch(err) {
+                    console.log('Error replying to user request: ', err)
+                    return err
+                }
+            }
+        },
+        createFeedback: {
+            type: GraphQLNonNull(FeedbackType),
+            args: {
+                name: {type: GraphQLNonNull(GraphQLString)},
+                description: {type: GraphQLNonNull(GraphQLString)}
+            },
+            async resolve (parent, args, req) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    if(req.userType != 'User') throw new Error('Unauthorized!')
+                    const user = await User.findById(req.userId)
+                    const feedback = new Feedback({
+                        user: req.userId,
+                        gym: user.gym,
+                        name: args.name,
+                        desciption: args.description,
+                        dateCreated: new Date().toDateString(),
+                        isOpen: true,
+                        status: 'Active'
+                    })
+                    return await feedback.save()
+                }
+                catch(err) {
+                    console.log('Error Creating a new feedback')
+                }
+            }
+        },
+        deleteFeedback: {
+            type: GraphQLNonNull(GraphQLString),
+            args: {
+                feedbackId: {type: GraphQLNonNull(GraphQLString)},
+            },
+            async resolve (parent, args, req) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    if(req.userType != 'User') throw new Error('Unauthorized!')
+                    await Feedback.findByIdAndDelete(args.feedbackId)
+                    return 'Success'
+                }
+                catch(err) {
+                    console.log('Error deleting the user feedback: ', err)
+                    return err
+                }
+            }
+        },
+        replyFeedback: {
+            type: GraphQLNonNull(FeedbackType),
+            args: {
+                reply: {type: GraphQLNonNull(GraphQLString)},
+                feedbackId: {type: GraphQLNonNull(GraphQLString)}
+            },
+            async resolve (parent, args, req) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    if(req.userType != 'GymOwner') throw new Error('Unauthorized!')
+                    const modifiedFeedback = await Feedback.findByIdAndUpdate(args.feedbackId, {reply: args.reply}, {new: true})
+                    return modifiedFeedback
+                }
+                catch(err) {
+                    console.log('Error replying to user feedback: ', err)
+                    return err
+                }
+            }
+        },
+        createNotificationForAllGymUsers: {
+            type: GraphQLNonNull(GraphQLString),
+            args: {
+                name: {type: GraphQLNonNull(GraphQLString)},
+                description: {type: GraphQLNonNull(GraphQLString)}
+            },
+            async resolve (parent, args, req) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    if(req.userType != 'GymOwner') throw new Error('Unauthorized!')
+                    const gymOwner = await GymOwner.findById(req.userId)
+                    const users = await Gym.findById(gymOwner.gym)
+                    users.map(async user => {
+                        var notification = new Notification({
+                            user: user,
+                            name: args.name,
+                            description: args.desciption,
+                            gym: gymOwner.gym,
+                            dateCreated: new Date().toDateString(),
+                            status: 'Active'
+                        })
+                        await notification.save()
+                    })
+                    return 'Success!'
+                }
+                catch(err) {
+                    console.log('Error generating a new notification for all gym users: ', err)
+                    return err
+                }
+            }
+        },
+        createNotificationForSpecificGymUser: {
+            type: GraphQLNonNull(NotificationType),
+            args: {
+                name: {type: GraphQLNonNull(GraphQLString)},
+                description: {type: GraphQLNonNull(GraphQLString)},
+                userId: {type: GraphQLNonNull(GraphQLString)}
+            },
+            async resolve (parent, args, req) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    if(req.userType != 'GymOwner' || req.userType == 'Admin') throw new Error('Unauthorized!')
+                    const gymOwner = await GymOwner.findById(req.userId)
+                    const notification = new Notification({
+                        user: user,
+                        name: args.name,
+                        description: args.desciption,
+                        gym: gymOwner.gym,
+                        dateCreated: new Date().toDateString(),
+                        status: 'Active'
+                    })
+                    return await notification.save()
+                }
+                catch(err) {
+                    console.log('Error generating a new notification for specific gym user: ', err)
+                    return err
+                }
+            }
+        },
+        deleteNotification: {
+            type: GraphQLNonNull(GraphQLString),
+            args: {
+                notificationId: {type: GraphQLNonNull(GraphQLString)},
+            },
+            async resolve (parent, args, req) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    if(req.userType != 'GymOwner') throw new Error('Unauthorized!')
+                    await Notification.findByIdAndDelete(args.notificationId)
+                    return 'Success'
+                }
+                catch(err) {
+                    console.log('Error deleting the gym notification: ', err)
+                    return err
+                }
+            }
+        },
+        createNotice: {
+            type: GraphQLNonNull(NoticeType),
+            args: {
+                name: {type: GraphQLNonNull(GraphQLString)},
+                description: {type: GraphQLNonNull(GraphQLString)}
+            },
+            async resolve (parent, args, req) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    if(req.userType != 'GynOwner') throw new Error('Unauthorized!')
+                    const user = await User.findById(req.userId)
+                    const notice = new Notice({
+                        name: args.name,
+                        desciption: args.description,
+                        gym: user.gym,
+                        dateCreated: new Date().toDateString(),
+                        status: 'Active'
+                    })
+                    return await notice.save()
+                }
+                catch(err) {
+                    console.log('Error Creating a new notice: ', err)
+                    return err
+                }
+            }
+        },
+        deleteNotice: {
+            type: GraphQLNonNull(GraphQLString),
+            args: {
+                noticeId: {type: GraphQLNonNull(GraphQLString)},
+            },
+            async resolve (parent, args, req) {
+                try {
+                    if(!req.userId) throw new Error('Unauthenticated!')
+                    if(req.userType != 'GymOwner') throw new Error('Unauthorized!')
+                    await Notice.findByIdAndDelete(args.noticeId)
+                    return 'Success'
+                }
+                catch(err) {
+                    console.log('Error deleting the gym notice: ', err)
                     return err
                 }
             }
         }
-        // enrollStudent : ADMINROLE
-        // enrollTeacher: ADMINROLE
     }
 })
 

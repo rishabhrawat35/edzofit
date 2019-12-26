@@ -31,4 +31,4 @@ const trainerSchema = new Schema({
     }
 })
 
-module.exports = mongoose.model('Trainer', feedbackSchema)
+module.exports = mongoose.model('Trainer', trainerSchema)

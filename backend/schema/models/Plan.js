@@ -22,14 +22,14 @@ const planSchema = new Schema({
     users: [
         {
             type: Schema.Types.ObjectId,
-            ref:'User',
+            ref: 'User'
         }
     ],
     dateStarted: {
         type: String,
         required: true
     },
-    dateEnding: {
+    dateCreated: {
         type: String,
         required: true
     },

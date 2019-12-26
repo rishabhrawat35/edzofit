@@ -24,8 +24,7 @@ const gymOwnerSchema = new Schema({
     },
     gym: {
         type: Schema.Types.ObjectId,
-        ref: 'Gym',
-        required: true
+        ref: 'Gym'
     },
     dateCreated: {
         type: String,

@@ -31,8 +31,8 @@ const requestSchema = new Schema({
         type: Boolean,
         required: true
     },
-    rejected: {
-        type: Boolean,
+    responseAt: {
+        type: String,
         required: true
     },
     isOpen: {

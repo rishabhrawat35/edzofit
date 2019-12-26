@@ -59,8 +59,7 @@ const gymSchema = new Schema({
     plans: [
         {
             type: Schema.Types.ObjectId,
-            ref: 'Plan',
-            required: true
+            ref: 'Plan'
         }
     ],
     invoices: [
