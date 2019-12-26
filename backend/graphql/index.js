@@ -214,9 +214,9 @@ const PlanType = new GraphQLObjectType({
     name: 'Plan',
     fields: () => ({
         id: {type: GraphQLNonNull(GraphQLID)},
-        name: {type: GraphQLNonNull(GraphQLID)},
-        description: {type: GraphQLNonNull(GraphQLID)},
-        amount: {type: GraphQLNonNull(GraphQLID)},
+        name: {type: GraphQLNonNull(GraphQLString)},
+        description: {type: GraphQLNonNull(GraphQLString)},
+        amount: {type: GraphQLNonNull(GraphQLInt)},
         gym: {
             type: GraphQLList(UserType),
             resolve(parent, args) {
@@ -1410,9 +1410,9 @@ const RootMutation = new GraphQLObjectType({
         makePayment: {
             type: GraphQLNonNull(InvoiceType),
             args: {
-                amount: {type: {GraphQLNonNull(GraphQLInt)}},
-                name: {type: {GraphQLNonNull(GraphQLString)}},
-                description: {type: {GraphQLNonNull(GraphQLString)}}
+                amount: {type: GraphQLNonNull(GraphQLInt)},
+                name: {type: GraphQLNonNull(GraphQLString)},
+                description: {type: GraphQLNonNull(GraphQLString)}
             },
             async resolve (parent, args, req) {
                 try {
