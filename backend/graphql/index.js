@@ -5,6 +5,7 @@ const { GraphQLObjectType, GraphQLSchema, GraphQLString, GraphQLID, GraphQLList,
 const User = require('../schema/models/User')
 const Gym = require('../schema/models/Gym')
 
+const Journal = require('../schema/models/Journal')
 const Plan = require('../schema/models/Plan')
 const Attendance = require('../schema/models/Attendance')
 const Trainer = require('../schema/models/Trainer')
@@ -43,6 +44,12 @@ const UserType = new GraphQLObjectType({
         dateCreated: {type: GraphQLNonNull(GraphQLString)},
         dateJoined: {type: GraphQLNonNull(GraphQLString)},
         planCycleStart: {type: GraphQLNonNull(GraphQLString)},
+        journals: {
+            type: GraphQLList(JournalType),
+            resolve(parent, args) {
+                return Journal.find({user: parent.id})
+            }
+        },
         plan: {
             type: PlanType,
             resolve(parent, args) {
@@ -181,10 +188,10 @@ const GymOwnerType = new GraphQLObjectType({
         name: {type: GraphQLNonNull(GraphQLString)},
         email: {type: GraphQLNonNull(GraphQLString)},
         password: {type: GraphQLString},
-        gym: {
-            type: GymType,
+        gyms: {
+            type: GraphQLList(GymType),
             resolve(parent, args) {
-                return Gym.findOne({owner: parent.id})
+                return Gym.find({owner: parent.id})
             }
         },
         address: {type: GraphQLNonNull(GraphQLString)},
@@ -205,6 +212,23 @@ const AdminType = new GraphQLObjectType({
         password: {type: GraphQLString},
         phoneNumber: {type: GraphQLNonNull(GraphQLString)},
         dateLastLogin: {type: GraphQLNonNull(GraphQLString)},
+        dateCreated: {type: GraphQLNonNull(GraphQLString)},
+        status: {type: GraphQLNonNull(GraphQLString)}
+    })
+})
+
+const JournalType = new GraphQLObjectType({
+    name: 'Journal',
+    fields: ({
+        id: {type: GraphQLNonNull(GraphQLID)},
+        user: {
+            type: GraphQLNonNull(UserType),
+            resolve(parent, args) {
+                return User.findOne({journals: {$in: parent.id}})
+            }
+        },
+        name: {type: GraphQLNonNull(GraphQLString)},
+        description: {type: GraphQLNonNull(GraphQLString)},
         dateCreated: {type: GraphQLNonNull(GraphQLString)},
         status: {type: GraphQLNonNull(GraphQLString)}
     })
@@ -1093,7 +1117,9 @@ const RootMutation = new GraphQLObjectType({
                         dateLastLogin: new Date().toDateString(),
                         status: 'Active'
                     })
-                    return await gym.save()
+                    const savedGym = await gym.save()
+                    await GymOwner.findByIdAndUpdate(req.userId, {$push: {gyms: savedGym.id}, status: 'Active'})
+                    return savedGym
                 }
                 catch(err) {
                     console.log('Error creating a new gym: ', err)

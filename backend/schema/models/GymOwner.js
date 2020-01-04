@@ -22,10 +22,12 @@ const gymOwnerSchema = new Schema({
         type: String,
         required: true
     },
-    gym: {
-        type: Schema.Types.ObjectId,
-        ref: 'Gym'
-    },
+    gyms: [
+        {
+            type: Schema.Types.ObjectId,
+            ref: 'Gym'
+        }
+    ],
     dateCreated: {
         type: String,
         required: true
